@@ -22,13 +22,70 @@ export class IpService {
     private readonly sequelize: Sequelize,
     private readonly configService: ConfigService
   ) {
-    this.fileBuffer = readFileSync(this.configService.get('env.datPath'));
+    this.fileBuffer = readFileSync(this.configService.get('env.ipDatPath'));
     this.firstIndex = this.readUint32LE(0);
     this.lastIndex = this.readUint32LE(4);
     this.recordCount = (this.lastIndex - this.firstIndex) / 7;
   }
 
-  public saveIPs() {
+  getIP(ip: string | number, simple = true): IPInfo {
+    if (typeof ip === 'number') {
+      if (ip < 0 || ip > 4294967295) {
+        return null;
+      }
+    } else {
+      if (/^\d{1,10}$/.test(ip)) {
+        ip = Number(ip);
+        if (ip > 4294967295) {
+          return null;
+        }
+      } else if (!this.isValidIP(ip)) {
+        return null;
+      }
+    }
+    const ipNum = typeof ip === 'string' ? this.ipToNumber(ip) : ip;
+    const ipStr = typeof ip === 'string' ? ip : this.ipToString(ip);
+
+    return {
+      IP: ipNum,
+      IPStr: ipStr,
+      ...this.parseIP(this.searchIP(ipNum), simple)
+    };
+  }
+
+  getInfo() {
+    return {
+      first: this.firstIndex,
+      last: this.lastIndex,
+      count: this.recordCount + 1,
+      version: this.getVersion()
+    };
+  }
+
+  getVersion(): string {
+    const record = this.getRecord(this.readUIntLE(this.lastIndex + 4, 3));
+    const version = record.B;
+
+    return version.substring(0, 4) + '-' + version.substring(5, 7) + '-' + version.substring(8, 10);
+  }
+
+  isValidIP(ip: string): boolean {
+    const regex = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+
+    return regex.test(ip);
+  }
+
+  ipToNumber(ip: string) {
+    const parts = ip.split('.').map(Number);
+
+    return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  }
+
+  ipToString(ipNum: number): string {
+    return [(ipNum >> 24) & 255, (ipNum >> 16) & 255, (ipNum >> 8) & 255, ipNum & 255].join('.');
+  }
+
+  saveIPs() {
     return this.sequelize
       .transaction(async (t) => {
         for (let i = 0; i <= this.recordCount; i += 1) {
@@ -56,47 +113,6 @@ export class IpService {
           stack: e.stack
         });
       });
-  }
-
-  public getIPDetail(ip: string | number, simple = true): IPInfo {
-    if (typeof ip === 'number') {
-      if (ip < 0 || ip > 4294967295) {
-        return null;
-      }
-    } else {
-      if (/^\d{1,10}$/.test(ip)) {
-        ip = Number(ip);
-        if (ip > 4294967295) {
-          return null;
-        }
-      } else if (!this.isValidIP(ip)) {
-        return null;
-      }
-    }
-    const ipNum = typeof ip === 'string' ? this.ipToNumber(ip) : ip;
-    const ipStr = typeof ip === 'string' ? ip : this.ipToString(ip);
-
-    return {
-      IP: ipNum,
-      IPStr: ipStr,
-      ...this.parseIP(this.searchIP(ipNum), simple)
-    };
-  }
-
-  public getInfo() {
-    return {
-      first: this.firstIndex,
-      last: this.lastIndex,
-      count: this.recordCount,
-      version: this.getVersion()
-    };
-  }
-
-  public getVersion(): string {
-    const record = this.getRecord(this.readUIntLE(this.lastIndex + 4, 3));
-    const version = record.B;
-
-    return version.substring(0, 4) + '-' + version.substring(5, 7) + '-' + version.substring(8, 10);
   }
 
   private searchIP(ip: number): number {
@@ -250,25 +266,5 @@ export class IpService {
 
   private readUint32LE(offset: number) {
     return this.fileBuffer.readUInt32LE(offset);
-  }
-
-  private isValidIP(ip: string): boolean {
-    const regex = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
-
-    return regex.test(ip);
-  }
-
-  private ipToNumber(ip: string) {
-    const parts = ip.split('.').map(Number);
-
-    return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
-  }
-
-  private ipToNumber2(ip: string) {
-    return ip.split('.').reduce((sum, val) => (sum << 8) + Number(val), 0);
-  }
-
-  private ipToString(ipNum: number): string {
-    return [(ipNum >> 24) & 255, (ipNum >> 16) & 255, (ipNum >> 8) & 255, ipNum & 255].join('.');
   }
 }

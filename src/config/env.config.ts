@@ -10,7 +10,7 @@ const ENV_CONFIG = () => {
     environment,
     isDev: environment === 'development',
     isProd: environment === 'production',
-    datPath: process.env.DAT_PATH
+    ipDatPath: process.env.IP_DAT_PATH
   };
 };
 

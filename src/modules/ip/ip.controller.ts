@@ -1,9 +1,9 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, Post, Query } from '@nestjs/common';
 import { TrimPipe } from '../../pipes/trim.pipe';
 import { IPInfo } from './ip.interface';
 import { IpService } from './ip.service';
 
-@Controller('ip')
+@Controller('ips')
 export class IpController {
   constructor(private readonly ipService: IpService) {}
 
@@ -13,12 +13,12 @@ export class IpController {
     @Query('ip', new TrimPipe()) ips: string | string[],
     @Query('s', new TrimPipe()) s: string
   ) {
-    const result: Record<string, IPInfo> = {};
     const simple = s === '1';
+    const result: Record<string, IPInfo> = {};
 
     ips = Array.isArray(ips) ? ips : [ips];
     ips.forEach((ip) => {
-      const data = this.ipService.getIPDetail(ip, simple);
+      const data = this.ipService.getIP(ip, simple);
       result[data.IPStr] = data;
     });
 
@@ -31,7 +31,7 @@ export class IpController {
     return this.ipService.getInfo();
   }
 
-  @Get('update')
+  @Post()
   @Header('Content-Type', 'application/json')
   async saveIPs() {
     await this.ipService.saveIPs();
