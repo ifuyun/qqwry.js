@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/sequelize';
-import { readFileSync } from 'fs';
+import { readFileSync, renameSync, rmSync } from 'fs';
 import { decode } from 'iconv-lite';
 import { Sequelize } from 'sequelize-typescript';
 import { DbQueryErrorException } from '../../exceptions/db-query-error.exception';
+import { InternalServerErrorException } from '../../exceptions/internal-server-error.exception';
 import { generateId } from '../../helpers/helper';
 import { IpModel } from '../../models/ip.model';
+import { IP_LOCALHOST_4, IP_LOCALHOST_6, MAX_IP_VALUE } from '../common/common.constant';
+import { CommonService } from '../common/common.service';
 import { IPAddress, IPInfo } from './ip.interface';
 
 @Injectable()
@@ -20,29 +24,30 @@ export class IpService {
     @InjectModel(IpModel)
     private readonly ipModel: typeof IpModel,
     private readonly sequelize: Sequelize,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly commonService: CommonService
   ) {
-    this.fileBuffer = readFileSync(this.configService.get('env.ipDatPath'));
-    this.firstIndex = this.readUint32LE(0);
-    this.lastIndex = this.readUint32LE(4);
-    this.recordCount = (this.lastIndex - this.firstIndex) / 7;
+    this.init();
   }
 
   getIP(ip: string | number, simple = true): IPInfo {
     if (typeof ip === 'number') {
-      if (ip < 0 || ip > 4294967295) {
+      if (ip < 0 || ip > MAX_IP_VALUE) {
         return null;
       }
     } else {
       if (/^\d{1,10}$/.test(ip)) {
         ip = Number(ip);
-        if (ip > 4294967295) {
+        if (ip > MAX_IP_VALUE) {
           return null;
         }
+      } else if (ip === IP_LOCALHOST_6) {
+        ip = IP_LOCALHOST_4;
       } else if (!this.isValidIP(ip)) {
         return null;
       }
     }
+
     const ipNum = typeof ip === 'string' ? this.ipToNumber(ip) : ip;
     const ipStr = typeof ip === 'string' ? ip : this.ipToString(ip);
 
@@ -53,10 +58,21 @@ export class IpService {
     };
   }
 
-  getInfo() {
+  getIPs(ips: string[], simple = true) {
+    const result: Record<string, IPInfo> = {};
+    ips.forEach((ip) => {
+      const data = this.getIP(ip, simple);
+      result[data.IPStr] = data;
+    });
+    if (result[IP_LOCALHOST_4]) {
+      result[IP_LOCALHOST_6] = result[IP_LOCALHOST_4];
+    }
+
+    return result;
+  }
+
+  getIPDBInfo() {
     return {
-      first: this.firstIndex,
-      last: this.lastIndex,
       count: this.recordCount + 1,
       version: this.getVersion()
     };
@@ -83,6 +99,40 @@ export class IpService {
 
   ipToString(ipNum: number): string {
     return [(ipNum >> 24) & 255, (ipNum >> 16) & 255, (ipNum >> 8) & 255, ipNum & 255].join('.');
+  }
+
+  @Cron('0 4 * * 0', {
+    name: 'updateIPDB'
+  })
+  async updateIPDB() {
+    try {
+      const datPath = this.configService.get('env.ipDatPath');
+      const tmpPath = this.configService.get('env.ipDatTempPath');
+
+      // 确保临时文件不存在
+      rmSync(tmpPath, {
+        force: true,
+        maxRetries: 3
+      });
+      await this.commonService.saveFileFromURL(this.configService.get('env.ipDatUrl'), tmpPath);
+
+      // 先删除原文件
+      rmSync(datPath, {
+        force: true,
+        maxRetries: 3
+      });
+      // 再重命名
+      renameSync(tmpPath, datPath);
+
+      this.init();
+    } catch (e) {
+      throw new InternalServerErrorException({
+        logData: {
+          message: 'IP更新失败',
+          stack: e.stack
+        }
+      });
+    }
   }
 
   saveIPs() {
@@ -113,6 +163,13 @@ export class IpService {
           stack: e.stack
         });
       });
+  }
+
+  private init() {
+    this.fileBuffer = readFileSync(this.configService.get('env.ipDatPath'));
+    this.firstIndex = this.readUint32LE(0);
+    this.lastIndex = this.readUint32LE(4);
+    this.recordCount = (this.lastIndex - this.firstIndex) / 7;
   }
 
   private searchIP(ip: number): number {

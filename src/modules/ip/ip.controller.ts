@@ -1,6 +1,5 @@
-import { Controller, Get, Header, Post, Query } from '@nestjs/common';
+import { Controller, Get, Header, Post, Put, Query } from '@nestjs/common';
 import { TrimPipe } from '../../pipes/trim.pipe';
-import { IPInfo } from './ip.interface';
 import { IpService } from './ip.service';
 
 @Controller('ips')
@@ -13,25 +12,31 @@ export class IpController {
     @Query('ip', new TrimPipe()) ips: string | string[],
     @Query('s', new TrimPipe()) s: string
   ) {
-    const simple = s === '1';
-    const result: Record<string, IPInfo> = {};
-
     ips = Array.isArray(ips) ? ips : [ips];
-    ips.forEach((ip) => {
-      const data = this.ipService.getIP(ip, simple);
-      result[data.IPStr] = data;
-    });
 
-    return result;
+    return {
+      list: this.ipService.getIPs(ips, s === '1'),
+      version: this.ipService.getVersion()
+    };
   }
 
   @Get('info')
   @Header('Content-Type', 'application/json')
-  getInfo() {
-    return this.ipService.getInfo();
+  getIPDBInfo() {
+    return this.ipService.getIPDBInfo();
   }
 
   @Post()
+  @Header('Content-Type', 'application/json')
+  async updateIPDB() {
+    await this.ipService.updateIPDB();
+
+    return {
+      code: 0
+    };
+  }
+
+  @Put()
   @Header('Content-Type', 'application/json')
   async saveIPs() {
     await this.ipService.saveIPs();
