@@ -22,6 +22,7 @@ export enum ResponseCode {
 
   // custom response code
   SUCCESS = 0,
-  UNKNOWN_ERROR = 6050,
-  DB_QUERY_ERROR = 6051
+  UNKNOWN_ERROR = 6000,
+  DB_QUERY_ERROR = 6001,
+  PARAM_PATTERN_INVALID = 6002
 }

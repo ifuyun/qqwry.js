@@ -5,11 +5,12 @@ import { InjectModel } from '@nestjs/sequelize';
 import { readFileSync, renameSync, rmSync } from 'fs';
 import { decode } from 'iconv-lite';
 import { Sequelize } from 'sequelize-typescript';
+import { ErrorMessage } from '../../common/error-message.enum';
 import { DbQueryErrorException } from '../../exceptions/db-query-error.exception';
 import { InternalServerErrorException } from '../../exceptions/internal-server-error.exception';
 import { generateId } from '../../helpers/helper';
 import { IpModel } from '../../models/ip.model';
-import { IP_LOCALHOST_4, IP_LOCALHOST_6, MAX_IP_VALUE } from '../common/common.constant';
+import { IP_LOCALHOST_4, IP_LOCALHOST_6, MAX_IP_VALUE, REGEXP_IP } from '../common/common.constant';
 import { CommonService } from '../common/common.service';
 import { IPAddress, IPInfo } from './ip.interface';
 
@@ -43,7 +44,7 @@ export class IpService {
         }
       } else if (ip === IP_LOCALHOST_6) {
         ip = IP_LOCALHOST_4;
-      } else if (!this.isValidIP(ip)) {
+      } else if (!REGEXP_IP.test(ip)) {
         return null;
       }
     }
@@ -62,7 +63,9 @@ export class IpService {
     const result: Record<string, IPInfo> = {};
     ips.forEach((ip) => {
       const data = this.getIP(ip, simple);
-      result[data.IPStr] = data;
+      if (data) {
+        result[data.IPStr] = data;
+      }
     });
     if (result[IP_LOCALHOST_4]) {
       result[IP_LOCALHOST_6] = result[IP_LOCALHOST_4];
@@ -85,10 +88,17 @@ export class IpService {
     return version.substring(0, 4) + '-' + version.substring(5, 7) + '-' + version.substring(8, 10);
   }
 
-  isValidIP(ip: string): boolean {
-    const regex = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
-
-    return regex.test(ip);
+  checkIPs(ips: (string | number)[]): boolean {
+    return ips.every((ip) => {
+      if (typeof ip === 'number') {
+        return ip >= 0 && ip <= MAX_IP_VALUE;
+      }
+      if (/^\d{1,10}$/.test(ip)) {
+        ip = Number(ip);
+        return ip >= 0 && ip <= MAX_IP_VALUE;
+      }
+      return REGEXP_IP.test(ip);
+    })
   }
 
   ipToNumber(ip: string) {
@@ -128,7 +138,7 @@ export class IpService {
     } catch (e) {
       throw new InternalServerErrorException({
         logData: {
-          message: 'IP更新失败',
+          message: ErrorMessage.IP_UPDATE_ERROR,
           stack: e.stack
         }
       });
@@ -159,7 +169,7 @@ export class IpService {
       .then(() => true)
       .catch(async (e) => {
         throw new DbQueryErrorException({
-          message: 'IP保存失败',
+          message: ErrorMessage.IP_SAVE_ERROR,
           stack: e.stack
         });
       });
